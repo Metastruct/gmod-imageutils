@@ -1,4 +1,6 @@
 
+if string.IsPNG then return end
+
 local function unpack_msb_uint32(s)
   local a,b,c,d = s:byte(1,#s)
   local num = (((a*256) + b) * 256 + c) * 256 + d
