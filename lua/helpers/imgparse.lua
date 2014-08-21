@@ -209,12 +209,11 @@ function file.ParseVTF(file)
 	
 	file:Seek(0x10)
 	local w,h = ushort(file:Read(2)),ushort(file:Read(2))
-	if not (IsPowerOfTwo(w)) then error"invalid file" end
-	if not (IsPowerOfTwo(h)) then error"invalid file" end
+	if not (IsPowerOfTwo(w)) or w==0 then error"invalid file" end
+	if not (IsPowerOfTwo(h)) or h==0 then error"invalid file" end
 	return {width=w,height=h}
 	
 end
-
 
 
 local ID_JPG = string.char(255) .. string.char(216)
