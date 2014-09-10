@@ -164,8 +164,8 @@ function surface.GetURLImage(url)
 		c[1]=c[1]==PROCESSING and "downloadfail" or c[1]
 	end
 	
-	http.Fetch(url,function(data,len,hdr,code) 
-		if code~=200 or len<=222 then 
+	http.Fetch(url,function(data,len,hdr,code)
+		if code~=200 or len<=222 then
 			return fail(code)
 		end
 		
@@ -197,12 +197,12 @@ local GetURLImage=surface.GetURLImage
 function surface.URLImage(name)
 	local ok,mat,c = GetURLImage(name)
 	local w,h
-	if ok==true then 
+	if ok==true then
 		
 		assert(not mat:IsError())
 		w=c[3]
 		h=c[4]
-		return function() 
+		return function()
 			surface.SetMaterial(mat)
 			return w,h,mat
 		end
@@ -213,7 +213,7 @@ function surface.URLImage(name)
 	return function()
 		if not mat then
 			ok,mat,c = GetURLImage(name)
-			if not ok then 
+			if not ok then
 				mat=nil
 				surface.SetTexture(0)
 				return
