@@ -229,7 +229,7 @@ function surface.URLImage(name)
 	end
 end
 
--- local test = surface.URLImage "http://g3.metastruct.org:20080/hsv8.vtf"
+-- local test = surface.URLImage "http://g3.metastruct.net:20080/hsv8.vtf"
 -- hook.Add("HUDPaint","a",function()
 -- 	local w,h = test()
 -- 	if not w then return end
