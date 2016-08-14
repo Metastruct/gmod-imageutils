@@ -6,6 +6,11 @@ local function unpack_msb_uint32(s)
   local num = (((a*256) + b) * 256 + c) * 256 + d
   return num
 end
+local function unpack_msb_uint32_r(s)
+  local d,c,b,a = s:byte(1,#s)
+  local num = (((a*256) + b) * 256 + c) * 256 + d
+  return num
+end
 
 local function read_msb_uint32(fh)
   return unpack_msb_uint32(fh:Read(4))
@@ -205,25 +210,28 @@ end
 local function ushort(str)
 	return string.byte(str,1)+string.byte(str,2)*256
 end
-
+local ID_VTF = "VTF\000"
 function file.ParseVTF(file)
 	--should we check for vtf?
-	
-	file:Seek(0x10)
+	if file:Read(4)~=ID_VTF then return nil,'not vtf' end
+	local ver1,ver2 = unpack_msb_uint32_r(file:Read(4)),unpack_msb_uint32_r(file:Read(4))
+	local headerSize = unpack_msb_uint32_r(file:Read(4))
+	if ver1>100 or ver2>900 then return nil,'invalid version' end
 	local w,h = ushort(file:Read(2)),ushort(file:Read(2))
-	if not (IsPowerOfTwo(w)) or w==0 then error"invalid file" end
-	if not (IsPowerOfTwo(h)) or h==0 then error"invalid file" end
-	return {width=w,height=h}
-	
+	if not (IsPowerOfTwo(w)) or w==0 then return nil,"invalid power" end
+	if not (IsPowerOfTwo(h)) or h==0 then return nil,"invalid power" end
+	return {width=w,height=h,version = {ver1,ver2},headerSize = headerSize}
 end
 
 
 local ID_JPG = string.char(255) .. string.char(216)
 local ID_PNG = "\137\080\078\071\013\010\026\010"
-local ID_VTF = "VTF\000"
+
 
 function string.IsPNG(bytes) return bytes:sub(1,8)==ID_PNG end
 function string.IsJPG(bytes) return bytes:sub(1,2)==ID_JPG end
 function string.IsVTF(bytes) return bytes:sub(1,4)==ID_VTF end
 
---PrintTable(string.IsVTF(file.Read("test.dat",'DATA')),file.ParseVTF(file.Open("test.dat",'rb','DATA')))
+
+
+--PrintTable(file.ParseVTF(file.Open("materials/point.vtf",'rb','GAME')))
