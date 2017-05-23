@@ -129,9 +129,8 @@ function FPATH_R(...)
 	return ("../data/%s"):format(FPATH(...))
 end
 
-
 local generated = {}
-function Material(fileid,ext,...)
+function Material(fileid, ext, isSurface, ...)
 	dbg("Material()",fileid,ext,...)
 	local path = FPATH_R(fileid,ext )
 	local a,b
@@ -139,11 +138,20 @@ function Material(fileid,ext,...)
 	if ext == 'vtf' then
 		path = FPATH_R(fileid)
 		dbg("_G.CreateMaterial()",("%q"):format(path))
-		a,b = CreateMaterial("uimgg"..fileid,'UnlitGeneric',{
+		a,b = CreateMaterial("uimgg"..fileid .. (isSurface and "surface" or "render"), isSurface and "UnlitGeneric" or "VertexLitGeneric", {
 			["$vertexcolor"] = "1",
 			["$vertexalpha"] = "1",
-			["$nolod"      ] = "1",
-			["$basetexture"] = path
+			["$nolod"] = "1",
+			["$basetexture"] = path,
+			["Proxies"] =
+			{
+				["AnimatedTexture"] =
+				{
+					["animatedTextureVar"] = "$basetexture",
+					["animatedTextureFrameNumVar"] = "$frame",
+					["animatedTextureFrameRate"] = 8,
+				}
+			}
 		})
 	else
 		dbg("_G.Material()",("%q"):format(path))
@@ -237,13 +245,13 @@ function read_image_dimensions(fh,fmt)
 	return w,h
 end
 
-function record_to_material(r)
+function record_to_material(r, data, isSurface)
 	dbg("record_to_material()",r and r.fileid)
 	if not r.used then
 		assert(record_use(r.fileid))
 		r.used = true 
 	end
-	return Material(r.fileid,r.ext),r.w,r.h
+	return Material(r.fileid, r.ext, isSurface, data), r.w, r.h
 end
 
 local function remove_error(cached,...) 
@@ -277,7 +285,7 @@ end
 
 -- Returns: mat,w,h
 -- Returns: false = processing, nil = error
-function GetURLImage(url)
+function GetURLImage(url, data, isSurface)
 	
 	url = FixupURL(url)
 	
@@ -288,7 +296,7 @@ function GetURLImage(url)
 		elseif cached.error then
 			return nil,cached.error
 		elseif cached.record then
-			return record_to_material(cached.record)
+			return record_to_material(cached.record, data, isSurface)
 		else
 			cached.error = "invalid cache state"
 			error(cached.error)
@@ -308,7 +316,7 @@ function GetURLImage(url)
 		if record_validate(url) then
 			record_use(cached_record.fileid)
 			cached.record = cached_record
-			return remove_error(cached, record_to_material(cached_record) )
+			return remove_error(cached, record_to_material(cached_record, data, isSurface) )
 		else
 			DBG("INVALID RECORD","DELETING",url)
 			assert(delete_record(url))
@@ -381,11 +389,11 @@ function GetURLImage(url)
 end
 
 
-function surface.URLImage(url)
-	local mat,w,h = GetURLImage(url)
+function surface.URLImage(url, data)
+	local mat,w,h = GetURLImage(url, data, true)
 	local function setmat() 
 		surface.SetMaterial(mat)
-		return w,h
+		return w,h, mat
 	end
 	
 	if mat then
@@ -394,7 +402,7 @@ function surface.URLImage(url)
 	end
 	
 	local trampoline trampoline = function()
-		mat,w,h = GetURLImage(url)
+		mat,w,h = GetURLImage(url, data, true)
 		if not mat then
 			if mat==nil then
 				trampoline = function() end
@@ -412,6 +420,39 @@ function surface.URLImage(url)
 	end
 	
 end
+
+function render.URLMaterial(url, data)
+	local mat,w,h = GetURLImage(url, "vertexlitgeneric " .. (data or ""), false)
+	local function setmat() 
+		render.SetMaterial(mat)
+		return w,h, mat
+	end
+	
+	if mat then
+		dbg("URLImage",url,"instant mat",mat)
+		return setmat
+	end
+	
+	local trampoline trampoline = function()
+		mat,w,h = GetURLImage(url, "vertexlitgeneric " .. (data or ""), false)
+		if not mat then
+			if mat==nil then
+				trampoline = function() end
+				DBG("URLImage failed for ",url,": ",w,h)
+			end
+			
+			return
+		end
+		trampoline = setmat 
+		return setmat()
+	end
+	
+	return function()
+		return trampoline()
+	end
+	
+end
+
 
 do return end
 
