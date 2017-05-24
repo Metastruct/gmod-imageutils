@@ -25,7 +25,7 @@ local VTF = file.ParseVTF
 local JPG = file.ParseJPG
 
 require'sqlext'
--- 
+--
 local db = assert(sql.obj("urlimage")
 	--:drop()
 	:create([[
@@ -211,8 +211,8 @@ end
 
 --TODO: Purge on start and live
 local purgeable = assert(find_purgeable())
-if purgeable~=true then 
-	dbg("LRU Purge: ",#purgeable) 
+if purgeable~=true then
+	dbg("LRU Purge: ",#purgeable)
 end
 
 
@@ -249,14 +249,14 @@ function record_to_material(r, data, isSurface)
 	dbg("record_to_material()",r and r.fileid)
 	if not r.used then
 		assert(record_use(r.fileid))
-		r.used = true 
+		r.used = true
 	end
 	return Material(r.fileid, r.ext, isSurface, data), r.w, r.h
 end
 
-local function remove_error(cached,...) 
-	cached.error = nil 
-	return ... 
+local function remove_error(cached,...)
+	cached.error = nil
+	return ...
 end
 
 cache = _MM.cache or {}
@@ -265,8 +265,8 @@ local cache = cache
 local fastdl = GetConVarString"sv_downloadurl":gsub("/$","")..'/'
 
 function FixupURL(url)
-	if not url:sub(3,10):find("://",1,true) then 
-		url = fastdl..url 
+	if not url:sub(3,10):find("://",1,true) then
+		url = fastdl..url
 	else
 
 		url = url:gsub([[^http%://onedrive%.live%.com/redir?]],[[https://onedrive.live.com/download?]])
@@ -290,7 +290,7 @@ function GetURLImage(url, data, isSurface)
 	url = FixupURL(url)
 	
 	local cached = cache[url]
-	if cached then 
+	if cached then
 		if cached.processing then
 			return false
 		elseif cached.error then
@@ -391,7 +391,7 @@ end
 
 function surface.URLImage(url, data)
 	local mat,w,h = GetURLImage(url, data, true)
-	local function setmat() 
+	local function setmat()
 		surface.SetMaterial(mat)
 		return w,h, mat
 	end
@@ -411,7 +411,7 @@ function surface.URLImage(url, data)
 			
 			return
 		end
-		trampoline = setmat 
+		trampoline = setmat
 		return setmat()
 	end
 	
@@ -423,7 +423,7 @@ end
 
 function render.URLMaterial(url, data)
 	local mat,w,h = GetURLImage(url, "vertexlitgeneric " .. (data or ""), false)
-	local function setmat() 
+	local function setmat()
 		render.SetMaterial(mat)
 		return w,h, mat
 	end
@@ -443,7 +443,7 @@ function render.URLMaterial(url, data)
 			
 			return
 		end
-		trampoline = setmat 
+		trampoline = setmat
 		return setmat()
 	end
 	
