@@ -22,5 +22,8 @@
   "homepage": "https://github.com/Metastruct/gmod-imageutils#readme",
   "peerDependencies": {
     "gmod-sqliteext": "git+https://github.com/Metastruct/sqliteext.git"
+  },  
+  "dependencies": {
+    "gmod-sqliteext": "git+https://github.com/Metastruct/sqliteext.git"
   }
 }
