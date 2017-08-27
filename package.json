@@ -1,0 +1,26 @@
+{
+  "name": "gmod-imageutils",
+  "version": "0.1.0",
+  "description": "Image utilities",
+  "files": ["lua/includes/modules/imgparse.lua","lua/includes/modules/urlimage.lua"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Metastruct/gmod-imageutils.git"
+  },
+  "keywords": [
+    "gmod",
+    "garrysmod",
+    "png",
+	"jpg",
+	"images"
+  ],
+  "author": "Python1320",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Metastruct/gmod-imageutils/issues"
+  },
+  "homepage": "https://github.com/Metastruct/gmod-imageutils#readme",
+  "peerDependencies": {
+    "gmod-sqliteext": "git+https://github.com/Metastruct/sqliteext.git"
+  }
+}
