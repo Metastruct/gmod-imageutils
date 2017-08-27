@@ -7,7 +7,7 @@
     "type": "git",
     "url": "git+https://github.com/Metastruct/gmod-imageutils.git"
   },
-  "bundledDependencies ": [
+  "bundledDependencies": [
     "gmod-sqliteext"
   ],
   "keywords": [
