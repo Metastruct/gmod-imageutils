@@ -1,5 +1,6 @@
 
-if string.IsPNG then return end
+if SERVER then AddCSLuaFile() end
+
 
 local function unpack_msb_uint32(s)
   local a,b,c,d = s:byte(1,#s)

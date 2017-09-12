@@ -16,7 +16,7 @@ end
 
 -- texture parsers for real w/h
 local IsPNG = string.IsPNG
-if not IsPNG then include'helpers/imgparse.lua' IsPNG = string.IsPNG end
+if not IsPNG then require'imgparse' IsPNG = string.IsPNG end
 local IsJPG = string.IsJPG
 local IsVTF = string.IsVTF
 
@@ -24,7 +24,7 @@ local PNG = file.ParsePNG
 local VTF = file.ParseVTF
 local JPG = file.ParseJPG
 
-require'sqlext'
+if not sql.obj then require'sqlext' end
 --
 local db = assert(sql.obj("urlimage")
 	--:drop()
