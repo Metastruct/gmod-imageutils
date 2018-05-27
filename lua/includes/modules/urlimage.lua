@@ -23,25 +23,35 @@ local IsVTF = string.IsVTF
 local PNG = file.ParsePNG
 local VTF = file.ParseVTF
 local JPG = file.ParseJPG
+local assert_ = assert
+
+local assert = function(a,b)
+	if a==nil and b=='nodb' then return end
+	return assert_(a,b)
+end
 
 if not sql.obj then require'sqlext' end
 --
-local db = assert(sql.obj("urlimage")
-	--:drop()
-	:create([[
-		`url`		TEXT NOT NULL CHECK(url <> '') UNIQUE,
-		`ext`		TEXT NOT NULL CHECK(ext = 'vtf' OR ext = 'png' OR ext = 'jpg'),
-		`last_used`	INTEGER NOT NULL DEFAULT 0,
-		`fetched`	INTEGER NOT NULL DEFAULT (cast(strftime('%%s', 'now') as int) - 1477777422),
-		`locked`	BOOLEAN NOT NULL DEFAULT 1,
-		`w`			INTEGER(2) NOT NULL DEFAULT 0,
-		`h`			INTEGER(2) NOT NULL DEFAULT 0,
-		`fileid`	INTEGER PRIMARY KEY AUTOINCREMENT]])
-	:coerce{last_used=tonumber, fileid=tonumber,w=tonumber,h=tonumber, locked=function(l) return l=='1' end })
+local db
+function db_init()
+	local _db = assert(sql.obj("urlimage")
+		--:drop()
+		:create([[
+			`url`		TEXT NOT NULL CHECK(url <> '') UNIQUE,
+			`ext`		TEXT NOT NULL CHECK(ext = 'vtf' OR ext = 'png' OR ext = 'jpg'),
+			`last_used`	INTEGER NOT NULL DEFAULT 0,
+			`fetched`	INTEGER NOT NULL DEFAULT (cast(strftime('%%s', 'now') as int) - 1477777422),
+			`locked`	BOOLEAN NOT NULL DEFAULT 1,
+			`w`			INTEGER(2) NOT NULL DEFAULT 0,
+			`h`			INTEGER(2) NOT NULL DEFAULT 0,
+			`fileid`	INTEGER PRIMARY KEY AUTOINCREMENT]])
+		:coerce{last_used=tonumber, fileid=tonumber,w=tonumber,h=tonumber, locked=function(l) return l=='1' end })
 
-local l = assert(db:update("locked = 0 WHERE locked != 0"))
+	local l = assert(_db:update("locked = 0 WHERE locked != 0"))
 
-if l>0 then dbg("unlocked entries: ",l) end
+	if l>0 then dbg("unlocked entries: ",l) end
+	db = _db
+end
 
 -- print(db:columns())
 
@@ -59,20 +69,34 @@ if l>0 then dbg("unlocked entries: ",l) end
 --do return end
 ---------------
 
-local MAX_ENTRIES = 128
-local function find_purgeable()
+
+MAX_ENTRIES = 2048
+function find_purgeable()
+	if not db then return nil,'nodb' end
 	dbg("find_purgeable()")
-	local a,b = db:select('*','WHERE locked != 1 ORDER BY last_used LIMIT(select max(0,count(*) -%d) from %s)',MAX_ENTRIES,db)
+	local a,b = db:select('*','WHERE locked != 1 ORDER BY last_used ASC LIMIT(select max(0,count(*) - %d) from %s)',MAX_ENTRIES,db)
+	if a==true then return false end
 	return a,b
 end
 
+--function find_oldest()
+--	if not db then return nil,'nodb' end
+--	dbg("find_oldest()")
+--	local a,b = db:select('*','WHERE locked != 1 ORDER BY last_used ASC LIMIT(1)')
+--	return a,b
+--end
+
 function update_dimensions(fileid,w,h)
+	if not db then return nil,'nodb' end
+
 	dbg("update_dimensions()",fileid,w,h)
 	assert(tonumber(fileid))
 	return db:update("w = %d, h=%d WHERE fileid=%d",w,h,fileid)
 end
 
 function record_use(fileid,nolock)
+	if not db then return nil,'nodb' end
+
 	dbg("record_use()",fileid,nolock)
 	assert(tonumber(fileid))
 	nolock = nolock and "" or ", locked = 1"
@@ -80,20 +104,25 @@ function record_use(fileid,nolock)
 end
 
 function get_record(urlid)
+	if not db then return nil,'nodb' end
+
 	dbg("get_record()",urlid)
 	local record = assert(db:select1('*',isnumber(urlid) and "WHERE fileid = %d" or "WHERE url = %s",urlid))
 	return record~=true and record
 end
 
 function record_validate(r)
-	if not istable(r) then r = get_record(r) end
-	dbg("record_validate()",r,r and r.url or r.fileid)
+	local err
+	if not istable(r) then r,err = get_record(r) end
+	dbg("record_validate()",r,r and r.url or r.fileid,err)
 	if not r or not r.w or r.w==0 then return false end
 	
 	return r and file.Exists(FPATH(r.fileid,r.ext),'DATA') and r
 end
 
 function new_record(url,ext)
+	if not db then return nil,'nodb' end
+
 	dbg("new_record()",url,ext)
 	local fileid = assert(db:insert{url = url,ext = ext})
 	return fileid
@@ -138,7 +167,7 @@ function Material(fileid, ext, isSurface, ...)
 	if ext == 'vtf' then
 		path = FPATH_R(fileid)
 		dbg("_G.CreateMaterial()",("%q"):format(path))
-		a,b = CreateMaterial("uimgg"..fileid .. (isSurface and "surface" or "render"), isSurface and "UnlitGeneric" or "VertexLitGeneric", {
+		a,b = CreateMaterial("uimgg".. fileid .. (isSurface and "surface" or "render"), isSurface and "UnlitGeneric" or "VertexLitGeneric", {
 			["$vertexcolor"] = "1",
 			["$vertexalpha"] = "1",
 			["$nolod"] = "1",
@@ -191,8 +220,10 @@ local delete_record delete_record = function(record)
 			return delete_record(record.fileid or record.fileid)
 		end
 	elseif isnumber(record) then
+		if not db then return nil,'nodb' end
 		return db:delete('fileid = %d',record)
 	elseif isstring(record) then
+		if not db then return nil,'nodb' end
 		return db:delete('url = %s',record)
 	else error"wtf" end
 end
@@ -208,12 +239,6 @@ function delete_fileid(fileid,ext)
 	file.Delete(FPATH(fileid,'vtf'),'DATA')
 end
 
-
---TODO: Purge on start and live
-local purgeable = assert(find_purgeable())
-if purgeable~=true then
-	dbg("LRU Purge: ",#purgeable)
-end
 
 
 function data_format(bytes)
@@ -262,11 +287,15 @@ end
 cache = _MM.cache or {}
 local cache = cache
 
+fastdl_override = false
 local fastdl = GetConVarString"sv_downloadurl":gsub("/$","")..'/'
+function GetFastDL()
+	return fastdl_override or fastdl
+end
 
 function FixupURL(url)
 	if not url:sub(3,10):find("://",1,true) then
-		url = fastdl..url
+		url = GetFastDL()..url
 	else
 
 		url = url:gsub([[^http%://onedrive%.live%.com/redir?]],[[https://onedrive.live.com/download?]])
@@ -277,11 +306,42 @@ function FixupURL(url)
 			url = url:gsub([[^https?://www.dropbox.com/s/(.+)%?dl%=[01]$]],[[https://dl.dropboxusercontent.com/s/%1]])
 		end
 
+		if url:find("imgur",1,true) then
+			-- todo
+		end
 	end
 	
 	return url
 end
 
+
+
+function URLFetchHead(url,cb,headers)
+	HTTP{
+		url			= url,
+		method		= "HEAD",
+		parameters = headers,
+		success = function( code, body, headers )
+			cb(code==200 and assert(headers) or nil,code,headers,body)
+		end,
+		failed = function( reason )
+			cb(nil,reason)
+		end
+	}
+end
+function HeadContentSize(t)
+	return t['Content-Length']
+end
+
+
+
+local n = URLIMAGE_EMERGENCY_UID or (10000-1)
+local function get_uid()
+	n = n + 1
+	URLIMAGE_EMERGENCY_UID = n
+	DBG("Emergency UID",n)
+	return n
+end
 -- Returns: mat,w,h
 -- Returns: false = processing, nil = error
 function GetURLImage(url, data, isSurface)
@@ -350,7 +410,16 @@ function GetURLImage(url, data, isSurface)
 		
 		-- build a new record --
 		
-		local fileid = new_record(url,ext)
+		local fileid = assert(new_record(url,ext))
+		local nodb
+		
+		if not fileid then 
+			nodb = true
+			fileid = get_uid()
+		end
+		
+		assert(fileid)
+		
 		local record = {fileid = fileid}
 		
 		fwrite(fileid,ext,data) data = nil
@@ -360,26 +429,56 @@ function GetURLImage(url, data, isSurface)
 		fh:Close()
 		if not w then return fail(h) end
 		
-		update_dimensions(fileid,w,h)
-		
-		
-		-- We don't have to build the record manually, we can just get it again
-		cached.record = get_record(url)
-		
+		if not nodb then
+			assert(update_dimensions(fileid,w,h))
+				
+			-- We don't have to build the record manually, we can just get it again
+			record = assert(get_record(url))
+			
+			assert(record)
+			
+			cached.record = record
+			
+		else
+			record.url = url
+			record.ext = 		ext
+			record.last_used = 	os.time()
+			record.fetched = 	os.time()
+			record.locked = 	true
+			record.w = 	w
+			record.h = 		h
+			record.fileid = fileid
+			cached.record = record
+		end
+	
 		if not record_validate(cached.record) then
 			return fail'record_validate()'
 		end
-		
-		-- we now have some sort of record, so let's use it so it's top of LRU
-		record_use(fileid,true) -- maybe remove?
-		
+			
+		if not nodb then
+			-- we now have some sort of record, so let's use it so it's top of LRU
+			record_use(fileid,true) -- maybe remove?
+		end
+			
 		cached.processing = false
 		remove_error(cached)
 		
 		
 	end
-	
-	http.Fetch(url,fetched,fail)
+	URLFetchHead(url,function(h,err)
+		if h then
+			local sz = HeadContentSize(h)
+			if sz and tonumber(sz) then
+				
+				if tonumber(sz)>15*1000*1000 then
+					return fail'filesize'
+				end
+			end
+		else
+			dbg("Head query failed",err)
+		end
+		http.Fetch(url,fetched,fail)	
+	end)
 	
 	cached.processing = true
 	
@@ -452,6 +551,35 @@ function render.URLMaterial(url, data)
 	
 end
 
+function do_purge()
+
+	--TODO: Purge
+	
+	local purgeable = find_purgeable()
+	
+	
+	if purgeable and purgeable~=true then
+		dbg("LRU Purge: ",#purgeable)
+	end
+
+end
+
+local ok,err = xpcall(db_init,debug.traceback)
+
+if not ok then
+	ErrorNoHalt(err..'\n')
+end
+
+
+local ok2,err2 = xpcall(do_purge,debug.traceback)
+
+if not ok2 then
+	ErrorNoHalt(err2..'\n')
+end
+
+function GetStartupFailure()
+	return not ok and (err or "Unknown")
+end
 
 do return end
 
