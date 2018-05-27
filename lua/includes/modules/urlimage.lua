@@ -519,6 +519,21 @@ function surface.URLImage(url, data)
 	
 end
 
+local WTF=function()end
+
+-- Only start downloading when first called
+function surface.LazyURLImage(url, data)
+	local cb 
+	cb = function(...)
+		cb = WTF
+		cb = surface.URLImage(url, data)
+		return cb(...)
+	end
+	return function(...)
+		return cb(...)
+	end
+end
+
 function render.URLMaterial(url, data)
 	local mat,w,h = GetURLImage(url, "vertexlitgeneric " .. (data or ""), false)
 	local function setmat()
