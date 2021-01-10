@@ -1,14 +1,29 @@
 if SERVER then
-	AddCSLuaFile() return
+	AddCSLuaFile() 
+	return
 end
 
 module("urlimage",package.seeall)
-_M._MM = setmetatable({},{__index=function(s,k) return rawget(s,k) end,__newindex=_M})
-function dbg(...) Msg"[UrlImg] "print(...) end
-function DBG(...) Msg"[UrlImg] "print(...) end
+_M._MM = setmetatable({},{__index=function(s,k) return rawget(_M,k) end,__newindex=_M})
+local inDebug
+function setDebug(d)
+	inDebug = d
+end
 
--- no debug anymore
-dbg=function()end
+if _MM.getDebug then
+	setDebug(getDebug())
+end
+
+function getDebug()
+	return inDebug
+end
+
+function dbg(...) 
+	if not inDebug then return end
+	Msg"[UrlImg] "print(...) 
+end
+
+function DBG(...) Msg"[UrlImg] "print(...) end
 
 FindMetaTable"IMaterial".ReloadTexture = function(self,name)
 	self:GetTexture(name or "$basetexture"):Download()
@@ -30,23 +45,27 @@ local assert = function(a,b)
 	return assert_(a,b)
 end
 
-if not sql.obj then require'sqlext' end
+if not sql.obj then pcall(require,'sqlext') end
 --
 local db
 function db_init()
-	local _db = assert(sql.obj("urlimage")
-		--:drop()
-		:create([[
+	local _db = assert(sql.obj("urlimage"))
+	assert(_db.migrate,"Please upgrade urlimage dependencies")
+	
+	_db=assert(_db:create([[
 			`url`		TEXT NOT NULL CHECK(url <> '') UNIQUE,
 			`ext`		TEXT NOT NULL CHECK(ext = 'vtf' OR ext = 'png' OR ext = 'jpg'),
 			`last_used`	INTEGER NOT NULL DEFAULT 0,
 			`fetched`	INTEGER NOT NULL DEFAULT (cast(strftime('%%s', 'now') as int) - 1477777422),
 			`locked`	BOOLEAN NOT NULL DEFAULT 1,
+			`size`		INTEGER DEFAULT 0,
 			`w`			INTEGER(2) NOT NULL DEFAULT 0,
 			`h`			INTEGER(2) NOT NULL DEFAULT 0,
 			`fileid`	INTEGER PRIMARY KEY AUTOINCREMENT]])
-		:coerce{last_used=tonumber, fileid=tonumber,w=tonumber,h=tonumber, locked=function(l) return l=='1' end })
-
+		:migrate(function(db)
+			db:alter("ADD COLUMN file_size INTEGER;")
+		end)
+		:coerce{last_used=tonumber, fileid=tonumber,w=tonumber,file_size=tonumber,h=tonumber, locked=function(l) return l=='1' end })
 	local l = assert(_db:update("locked = 0 WHERE locked != 0"))
 
 	if l>0 then dbg("unlocked entries: ",l) end
@@ -79,6 +98,17 @@ function find_purgeable()
 	return a,b
 end
 
+function get_cache_info()
+	if not db then return nil,'nodb' end
+	return {
+		
+		count = tonumber(db:select('count(*) as count')[1].count or -1),
+		bytes = db:select('sum(file_size) as file_size')[1].file_size or -1,
+		
+	}
+end
+
+
 --function find_oldest()
 --	if not db then return nil,'nodb' end
 --	dbg("find_oldest()")
@@ -92,6 +122,14 @@ function update_dimensions(fileid,w,h)
 	dbg("update_dimensions()",fileid,w,h)
 	assert(tonumber(fileid))
 	return db:update("w = %d, h=%d WHERE fileid=%d",w,h,fileid)
+end
+function update_size(fileid,sz)
+	if not db then return nil,'nodb' end
+	assert(tonumber(fileid))
+	assert(tonumber(sz))
+
+	dbg("update_size()",fileid,sz)
+	return db:update("file_size = %d WHERE fileid=%d",sz,fileid)
 end
 
 function record_use(fileid,nolock)
@@ -154,20 +192,22 @@ function FPATH(a,ext,open_as)
 	return ret
 end
 
-function FPATH_R(...)
+function ToMaterialPath(...)
 	return ("../data/%s"):format(FPATH(...))
 end
+FPATH_R=ToMaterialPath
 
 local generated = {}
-function Material(fileid, ext, isSurface, ...)
-	dbg("Material()",fileid,ext,...)
-	local path = FPATH_R(fileid,ext )
+function Material(fileid, ext, isSurface, pngParameters)
+	dbg("Material()",fileid,ext,pngParameters)
+	local path = ToMaterialPath(fileid,ext )
 	local a,b
 	
-	if ext == 'vtf' then
-		path = FPATH_R(fileid)
-		dbg("_G.CreateMaterial()",("%q"):format(path))
-		a,b = CreateMaterial("uimgg".. fileid .. (isSurface and "surface" or "render"), isSurface and "UnlitGeneric" or "VertexLitGeneric", {
+	if ext == 'vtf' or ext == 'VTF' then
+		path = ToMaterialPath(fileid)
+		local matid = "uimgg".. fileid .. (isSurface and "surface" or "render")
+		dbg("_G.CreateMaterial()",("%q"):format(path),isSurface and "UnlitGeneric" or "VertexLitGeneric",matid)
+		a,b = CreateMaterial(matid, isSurface and "UnlitGeneric" or "VertexLitGeneric", {
 			["$vertexcolor"] = "1",
 			["$vertexalpha"] = "1",
 			["$nolod"] = "1",
@@ -183,14 +223,14 @@ function Material(fileid, ext, isSurface, ...)
 			}
 		})
 	else
-		dbg("_G.Material()",("%q"):format(path))
-		a,b = _G.Material(path,...)
+		dbg("_G.Material()",("%q"):format(path),pngParameters)
+		a,b = _G.Material(path,pngParameters)
 	end
 	
 	-- should no longer be needed, if it even works
 	--if a then a:ReloadTexture() end
 	
-	return a,b,path
+	return a,b,path,matid
 end
 
 function fwrite(fileid,ext,data)
@@ -230,13 +270,25 @@ end
 
 function delete_fileid(fileid,ext)
 	dbg("delete_fileid()",fileid,ext)
-	if ext then
-		return file.Delete(FPATH(fileid,ext),'DATA')
+	
+	local deleted = false
+	local function D(path,place)
+		if file.Exists(path,place) then
+			deleted = true
+			file.Delete(path,place)
+			return deleted
+		end
 	end
-	file.Delete(FPATH(fileid,'vmt'),'DATA')
-	file.Delete(FPATH(fileid,'jpg'),'DATA')
-	file.Delete(FPATH(fileid,'png'),'DATA')
-	file.Delete(FPATH(fileid,'vtf'),'DATA')
+	
+	if ext then
+		D(FPATH(fileid,ext),'DATA')
+	end
+	D(FPATH(fileid,'vmt'),'DATA')
+	D(FPATH(fileid,'jpg'),'DATA')
+	D(FPATH(fileid,'png'),'DATA')
+	D(FPATH(fileid,'vtf'),'DATA')
+	
+	return deleted
 end
 
 
@@ -306,9 +358,6 @@ function FixupURL(url)
 			url = url:gsub([[^https?://www.dropbox.com/s/(.+)%?dl%=[01]$]],[[https://dl.dropboxusercontent.com/s/%1]])
 		end
 
-		if url:find("imgur",1,true) then
-			-- todo
-		end
 	end
 	
 	return url
@@ -394,12 +443,12 @@ function GetURLImage(url, data, isSurface)
 	
 	local function fetched(data,len,hdr,code)
 		
-		dbg("fetched()",len,code)
+		dbg("fetched()",url,string.NiceSize(len),code)
 		
 		if code~=200 then
 			return fail(code)
 		end
-		if len<=8 or len>16778216 then -- 4*2048*2048 + 1kb
+		if len<=8 or len>1024*1024*25 then -- 26MB
 			return fail'invalid filesize'
 		end
 		
@@ -431,6 +480,7 @@ function GetURLImage(url, data, isSurface)
 		
 		if not nodb then
 			assert(update_dimensions(fileid,w,h))
+			assert(update_size(fileid,len))
 				
 			-- We don't have to build the record manually, we can just get it again
 			record = assert(get_record(url))
@@ -486,9 +536,32 @@ function GetURLImage(url, data, isSurface)
 	
 end
 
+local lastFrameCalled = -1
+local frameCount
+local errored = false
 
-function surface.URLImage(url, data)
+function URLImage(url, data)
+	local fn = FrameNumber()
+	if lastFrameCalled == fn - 1 then
+		frameCount=frameCount+1
+		if frameCount > 18 then
+			if not errored then
+				errored = true
+				if not IKNOWWHATIMDOING then 
+					ErrorNoHalt("URLImage called every frame, you must keep a reference to the result of URLImage, url="..tostring(url))
+					debug.Trace()
+				end
+			end
+		end
+	
+	elseif lastFrameCalled ~= fn then
+		frameCount = 0
+	end
+	lastFrameCalled=fn
+	
 	local mat,w,h = GetURLImage(url, data, true)
+	dbg("URLImage",fn,url,mat,w)
+	
 	local function setmat()
 		surface.SetMaterial(mat)
 		return w,h, mat
@@ -516,13 +589,12 @@ function surface.URLImage(url, data)
 	return function()
 		return trampoline()
 	end
-	
 end
 
 local WTF=function()end
 
 -- Only start downloading when first called
-function surface.LazyURLImage(url, data)
+function LazyURLImage(url, data)
 	local cb 
 	cb = function(...)
 		cb = WTF
@@ -533,8 +605,29 @@ function surface.LazyURLImage(url, data)
 		return cb(...)
 	end
 end
+local lastFrameCalled = -1
+local frameCount
+local errored = false
 
-function render.URLMaterial(url, data)
+function URLMaterial(url, data)
+	local fn = FrameNumber()
+	if lastFrameCalled == fn - 1 then
+		frameCount=frameCount+1
+		if frameCount > 18 then
+			if not errored then
+				errored = true
+				if not IKNOWWHATIMDOING then 
+					ErrorNoHalt("URLMaterial called every frame, you must keep a reference to the result of URLMaterial, url="..tostring(url))
+					debug.Trace()
+				end
+			end
+		end
+	elseif lastFrameCalled ~= fn then
+		frameCount = 0
+	end
+	lastFrameCalled=fn
+	
+	
 	local mat,w,h = GetURLImage(url, "vertexlitgeneric " .. (data or ""), false)
 	local function setmat()
 		render.SetMaterial(mat)
@@ -566,17 +659,28 @@ function render.URLMaterial(url, data)
 	
 end
 
-function do_purge()
+surface.URLImage = URLImage
+surface.LazyURLImage = LazyURLImage
+render.URLMaterial = URLMaterial
 
+function do_purge()
 	--TODO: Purge
-	
-	local purgeable = find_purgeable()
-	
-	
-	if purgeable and purgeable~=true then
-		dbg("LRU Purge: ",#purgeable)
+	local purgeables = find_purgeable()
+	if not purgeables or purgeables == true or #purgeables == 0 then return end
+	local purgestart = SysTime()
+
+	for _, purgeable in next, purgeables do
+		if not delete_fileid(purgeable.fileid) then
+			dbg("already deleted?", table.ToString(purgeable))
+		end
+
+		if not delete_record(purgeable.url) then
+			DBG("Could not delete", table.ToString(purgeable))
+		end
 	end
 
+	local purgelen = SysTime() - purgestart
+	DBG("Images purged: ", #purgeables, ". took ", math.Round(purgelen*1000), "ms")
 end
 
 local ok,err = xpcall(db_init,debug.traceback)
