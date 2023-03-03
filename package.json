@@ -1,6 +1,6 @@
 {
   "name": "gmod-imageutils",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Image utilities",
   "files": ["lua/includes/modules/imgparse.lua","lua/includes/modules/urlimage.lua"],
   "repository": {
