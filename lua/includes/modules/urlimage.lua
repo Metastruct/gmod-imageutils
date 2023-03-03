@@ -538,7 +538,12 @@ end
 
 local lastFrameCalled = -1
 local frameCount
+local IKNOWWHATIMDOING=false
 local errored = false
+
+function SuppressSanityChecks(s)
+	IKNOWWHATIMDOING = s ~= false
+end
 
 function URLImage(url, data)
 	local fn = FrameNumber()
@@ -576,19 +581,20 @@ function URLImage(url, data)
 		mat,w,h = GetURLImage(url, data, true)
 		if not mat then
 			if mat==nil then
-				trampoline = function() end
+				trampoline = function() return mat,w,h end
 				DBG("URLImage failed for ",url,": ",w,h)
 			end
 			
-			return
+			return mat
 		end
 		trampoline = setmat
 		return setmat()
 	end
 	
-	return function()
+	local function return_trampoline()
 		return trampoline()
 	end
+	return return_trampoline
 end
 
 local WTF=function()end
