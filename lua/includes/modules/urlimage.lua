@@ -649,19 +649,20 @@ function URLMaterial(url, data)
 		mat,w,h = GetURLImage(url, "vertexlitgeneric " .. (data or ""), false)
 		if not mat then
 			if mat==nil then
-				trampoline = function() end
-				DBG("URLImage failed for ",url,": ",w,h)
+				trampoline = function() return mat,w,h end
+				DBG("URLMaterial failed for ",url,": ",w,h)
 			end
 			
-			return
+			return mat
 		end
 		trampoline = setmat
 		return setmat()
 	end
 	
-	return function()
+	local function return_trampoline()
 		return trampoline()
 	end
+	return return_trampoline
 	
 end
 
